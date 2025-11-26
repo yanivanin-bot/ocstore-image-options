@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="utf-8"?>
+<modification>
+    <name>Option Image PRO (ReMarket)</name>
+    <code>option_image_pro_remarket</code>
+    <version>1.0</version>
+    <author>ChatGPT</author>
+
+    @-- ===========================================
+         1) ADMIN: Додаємо вкладку "Зображення опцій"
+    ============================================ --
+    <file path="admin/view/template/catalog/product_form.twig">
+        <operation>
+            <search>@[CDATA[<li<a href="#tab-option" data-toggle="tab">{{ tab_option }}</a></li>]]></search>
+            <add position="after">@[CDATA[
+<li<a href="#tab-option-images" data-toggle="tab">Зображення опцій</a></li>
+            ]]></add>
+        </operation>
+
+        @-- Вставляємо вкладку перед закриттям tab-content --
+        <operation>
+            <search>@[CDATA[</div@-- tab-content --]]></search>
+            <add position="before">@[CDATA[
+<div class="tab-pane" id="tab-option-images"
+
+  <h3 style="margin-top:0;">Зображення опцій</h3>
+  <div id="option-images-wrapper"><p>Завантаження...</p></div>
+
+</div>
+
+<script>
+(function(){
+
+function buildOptionImages(){
+
+    const wrap = document.getElementById('option-images-wrapper');
+    if(!wrap) return;
+
+    wrap.innerHTML = '';
+
+    const optionBlocks = document.querySelectorAll('#tab-option .tab-pane');
+
+    optionBlocks.forEach(block => {
+
+        const optName = block.querySelector('input[name*="[name]"]');
+        const optType = block.querySelector('input[name*="[type]"]');
+
+        if(!optName || !optType) return;
+
+        let name = optName.value.trim().toUpperCase();
+        let type = optType.value.trim().toLowerCase();
+
+        // тільки КОЛІР
+        if(type !== 'radio' && type !== 'select') return;
+        if(name !== 'КОЛІР' && name !== 'ЦВЕТ' && name !== 'COLOR' && name !== 'COLOUR') return;
+
+        let section = document.createElement('div');
+        section.style.marginBottom = '30px';
+
+        let h = document.createElement('h4');
+        h.textContent = 'Опція: ' + optName.value;
+        section.appendChild(h);
+
+        const rows = block.querySelectorAll('table tbody tr');
+
+        rows.forEach(row => {
+
+            const povID_input = row.querySelector('input[name*="[product_option_value_id]"]');
+            const select = row.querySelector('select[name*="[option_value_id]"]');
+
+            if(!povID_input || !select) return;
+
+            let povID = povID_input.value.trim();
+            let valName = select.options[select.selectedIndex].text.trim();
+
+            let box = document.createElement('div');
+            box.style.padding = '15px';
+            box.style.border = '1px solid #ccc';
+            box.style.marginBottom = '20px';
+            box.style.borderRadius = '4px';
+            box.style.background = '#fafafa';
+
+            let title = document.createElement('h5');
+            title.textContent = valName + ' (ID ' + povID + ')';
+            box.appendChild(title);
+
+            /* При існуванні фото — вони будуть вставлені Twig’ом */
+            if(typeof option_image_data !== "undefined" && option_image_data[povID]){
+                option_image_data[povID].forEach(item => {
+
+                    let rowDiv = document.createElement('div');
+                    rowDiv.style.margin = '5px 0';
+
+                    rowDiv.innerHTML =
+                    '<a href="" data-toggle="image" class="img-thumbnail">'+
+                      '<img src="'+item.thumb+'" />'+
+                    '</a>'+
+                    '<input type="hidden" name="option_image['+povID+'][existing][]" value="'+item.image+'">'+
+                    '<input type="text" name="option_image_sort['+povID+'][existing][]" value="'+item.sort_order+'" style="width:60px;margin-left:5px;">'+
+                    '<label style="margin-left:10px;">'+
+                    '<input type="checkbox" name="option_image_delete['+povID+'][]" value="'+item.product_option_image_id+'"> Видалити'+
+                    '</label>';
+
+                    box.appendChild(rowDiv);
+                });
+            }
+
+            let addBtn = document.createElement('button');
+            addBtn.className = 'btn btn-primary btn-sm';
+            addBtn.textContent = '+ Додати фото';
+            addBtn.style.marginTop = '10px';
+            addBtn.onclick = function(){
+                let div = document.createElement('div');
+                div.style.margin = '5px 0';
+                div.innerHTML =
+                '<a href="" data-toggle="image" class="img-thumbnail">'+
+                    '<img src="view/image/no_image.png">'+
+                '</a>'+
+                '<input type="hidden" name="option_image['+povID+'][new][]" value="">'+
+                '<input type="text" name="option_image_sort['+povID+'][new][]" value="0" style="width:60px;margin-left:5px;">';
+                box.appendChild(div);
+            };
+
+            box.appendChild(addBtn);
+            section.appendChild(box);
+        });
+
+        wrap.appendChild(section);
+    });
+}
+
+setTimeout(buildOptionImages, 800);
+$(document).ajaxComplete(function(){ setTimeout(buildOptionImages,400); });
+
+})();
+</script>
+            ]]></add>
+        </operation>
+    </file>
+
+
+    @-- =====================================================
+         2) ADMIN CONTROLLER — Збереження
+    ====================================================== --
+    <file path="admin/controller/catalog/product.php">
+        <operation>
+            <search>@[CDATA[$this-model_catalog_product->editProduct($product_id, $this->request->post);]]></search>
+            <add position="after">@[CDATA[
+if(isset($this-request->post['option_image'])){
+    $this->load->model('catalog/product');
+    $this->model_catalog_product->saveOptionImagesPRO(
+        $product_id,
+        $this->request->post
+    );
+}
+            ]]></add>
+        </operation>
+    </file>
+
+
+    @-- =====================================================
+         3) MODEL — Збереження фото
+    ====================================================== --
+    <file path="admin/model/catalog/product.php">
+        <operation>
+            <search>@[CDATA[class ModelCatalogProduct extends Model {]]</search>
+            <add position="after">@[CDATA[
+public function saveOptionImagesPRO($product_id, $post){
+
+    // delete selected
+    if(isset($post['option_image_delete'])){
+        foreach($post['option_image_delete'] as $povID = $arr){
+            foreach($arr as $imgID){
+                $this->db->query("DELETE FROM " . DB_PREFIX . "product_option_image WHERE product_option_image_id=".(int)$imgID);
+            }
+        }
+    }
+
+    // update existing sort
+    if(isset($post['option_image_sort'])){
+        foreach($post['option_image_sort'] as $povID => $types){
+            if(isset($types['existing'])){
+                foreach($types['existing'] as $i => $sort){
+                    $img = $post['option_image'][$povID]['existing'][$i];
+                    $this->db->query("
+                        UPDATE " . DB_PREFIX . "product_option_image
+                        SET sort_order=".(int)$sort."
+                        WHERE product_id=".(int)$product_id."
+                        AND product_option_value_id=".(int)$povID."
+                        AND image='".$this->db->escape($img)."'
+                    ");
+                }
+            }
+        }
+    }
+
+    // new images
+    if(isset($post['option_image'])){
+        foreach($post['option_image'] as $povID => $images){
+
+            if(isset($images['new'])){
+                foreach($images['new'] as $i => $img){
+                    if(!$img) continue;
+
+                    $sort_order = (int)$post['option_image_sort'][$povID]['new'][$i];
+
+                    $this->db->query("
+                        INSERT INTO " . DB_PREFIX . "product_option_image
+                        SET product_id=".(int)$product_id.",
+                            product_option_value_id=".(int)$povID.",
+                            image='".$this->db->escape($img)."',
+                            sort_order=".$sort_order."
+                    ");
+                }
+            }
+        }
+    }
+}
+            ]]></add>
+        </operation>
+    </file>
+
+
+    @-- =====================================================
+         4) FRONT CONTROLLER — Передаємо дані в Twig
+    ====================================================== --
+    <file path="catalog/controller/product/product.php">
+        <operation>
+            <search>@[CDATA[$data['options'] = array();]]</search>
+            <add position="after">@[CDATA[
+$rows = $this-db->query("SELECT * FROM ".DB_PREFIX."product_option_image WHERE product_id=".(int)$product_id." ORDER BY sort_order ASC")->rows;
+$data['optionGallery'] = [];
+foreach($rows as $r){
+    $data['optionGallery'][$r['product_option_value_id']][] = "/image/".$r['image'];
+}
+            ]]></add>
+        </operation>
+    </file>
+
+
+    @-- =====================================================
+         5) FRONT JS — ReMarket Slick Switcher
+    ====================================================== --
+    <file path="catalog/view/theme/*/template/product/product.twig">
+        <operation>
+            <search>@[CDATA[</body]]></search>
+            <add position="before">@[CDATA[
+<script
+document.addEventListener("DOMContentLoaded", function(){
+
+    const gallery = {{ optionGallery|json_encode() }};
+
+    document.querySelectorAll('label').forEach(label => {
+        let inp = label.querySelector('input[type=radio],input[type=checkbox]');
+        if(!inp) return;
+
+        label.addEventListener('click', function(){
+
+            let povID = inp.closest('input').value;
+
+            if(!gallery[povID]) return;
+
+            let imgs = gallery[povID];
+
+            let main = $('.rm-product-images-main');
+            let thumb = $('.rm-product-images-thumb');
+
+            main.slick('removeSlide', null, null, true);
+            thumb.slick('removeSlide', null, null, true);
+
+            imgs.forEach(src => {
+                main.slick('slickAdd','<div><img src="'+src+'"></div>');
+                thumb.slick('slickAdd','<div><img src="'+src+'"></div>');
+            });
+
+            main.slick('slickGoTo',0);
+        });
+    });
+
+});
+</script>
+            ]]></add>
+        </operation>
+    </file>
+
+</modification>
